@@ -5,6 +5,8 @@ namespace Vayu\Console;
 use Vayu\Application;
 use Vayu\Console\Commands\AboutCommand;
 use Vayu\Console\Commands\CacheClearCommand;
+use Vayu\Console\Commands\ConfigCacheCommand;
+use Vayu\Console\Commands\ConfigClearCommand;
 use Vayu\Console\Commands\DbSeedCommand;
 use Vayu\Console\Commands\DoctorCommand;
 use Vayu\Console\Commands\KeyGenerateCommand;
@@ -15,9 +17,12 @@ use Vayu\Console\Commands\MigrateCommand;
 use Vayu\Console\Commands\MigrateFreshCommand;
 use Vayu\Console\Commands\MigrateRollbackCommand;
 use Vayu\Console\Commands\MigrateStatusCommand;
+use Vayu\Console\Commands\OptimizeClearCommand;
+use Vayu\Console\Commands\OptimizeCommand;
 use Vayu\Console\Commands\RouteListCommand;
 use Vayu\Console\Commands\RunCommand;
 use Vayu\Console\Commands\SetupCommand;
+use Vayu\Console\Commands\WebSocketCommand;
 
 /**
  * Console kernel: resolves the requested command and runs it.
@@ -28,6 +33,7 @@ class Kernel
     protected array $commands = [
         SetupCommand::class,
         RunCommand::class,
+        WebSocketCommand::class,
         AboutCommand::class,
         DoctorCommand::class,
         RouteListCommand::class,
@@ -38,6 +44,10 @@ class Kernel
         MigrateFreshCommand::class,
         DbSeedCommand::class,
         CacheClearCommand::class,
+        ConfigCacheCommand::class,
+        ConfigClearCommand::class,
+        OptimizeCommand::class,
+        OptimizeClearCommand::class,
         MakeModelCommand::class,
         MakeMigrationCommand::class,
         MakeSeederCommand::class,

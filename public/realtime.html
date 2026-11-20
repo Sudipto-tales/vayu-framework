@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vayu Real-time Demo</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --fg:#e6e9ef; --muted:#8b93a7; --accent:#5b8cff; --me:#1f6feb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#f04747; display:inline-block; margin-right:6px; }
+  .dot.on { background:#3fb950; }
+  main { max-width:720px; margin:0 auto; padding:20px; }
+  .row { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  input, button { font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--fg); padding:9px 12px; }
+  input { flex:1; min-width:120px; }
+  button { cursor:pointer; background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.ghost { background:var(--panel); color:var(--fg); border-color:var(--line); font-weight:500; }
+  #log { border:1px solid var(--line); border-radius:12px; background:var(--panel); height:360px; overflow:auto; padding:12px; }
+  .msg { padding:7px 11px; border-radius:10px; margin:6px 0; max-width:80%; background:#20242e; }
+  .msg.me { background:var(--me); margin-left:auto; }
+  .msg .meta { font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .sys { font-size:12px; color:var(--muted); text-align:center; margin:8px 0; }
+  code { background:#20242e; padding:1px 5px; border-radius:5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vayu Real-time</h1>
+  <span><span id="dot" class="dot"></span><span id="status">disconnected</span></span>
+  <span style="margin-left:auto; color:var(--muted); font-size:13px">channel: <code id="chan">room.lobby</code> · you: <code id="me">—</code></span>
+</header>
+
+<main>
+  <div class="row">
+    <input id="url" value="ws://localhost:8080" aria-label="WebSocket URL">
+    <input id="channel" value="room.lobby" aria-label="Channel">
+    <button id="connect">Connect &amp; Join</button>
+    <button id="disconnect" class="ghost">Disconnect</button>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+
+  <div class="row" style="margin-top:12px">
+    <input id="text" placeholder="Type a message…" aria-label="Message" disabled>
+    <button id="send" disabled>Send</button>
+    <button id="http" class="ghost" title="Push via POST /api/broadcast">Push via HTTP</button>
+  </div>
+  <p class="sys">Open this page in two tabs. Start the server with <code>php vayu websocket</code>.
+     “Push via HTTP” calls <code>/api/broadcast</code> to demo a server-side push.</p>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let ws = null, me = null;
+
+  const log = $('log');
+  function line(html, cls='sys') {
+    const el = document.createElement('div');
+    el.className = cls; el.innerHTML = html;
+    log.appendChild(el); log.scrollTop = log.scrollHeight;
+  }
+  function status(on, label) {
+    $('dot').classList.toggle('on', on);
+    $('status').textContent = label;
+    $('text').disabled = !on; $('send').disabled = !on;
+  }
+
+  function connect() {
+    disconnect();
+    const url = $('url').value.trim();
+    const channel = $('channel').value.trim() || 'room.lobby';
+    $('chan').textContent = channel;
+    try { ws = new WebSocket(url); } catch (e) { line('Bad URL: ' + e.message); return; }
+
+    ws.onopen = () => { status(true, 'connected'); ws.send(JSON.stringify({action:'subscribe', channel})); };
+    ws.onclose = () => status(false, 'disconnected');
+    ws.onerror = () => line('Connection error — is <code>php vayu websocket</code> running?');
+    ws.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      const d = m.data || {};
+      switch (m.event) {
+        case 'welcome': me = d.id; $('me').textContent = me; line('Connected as <code>'+me+'</code>'); break;
+        case 'subscribed': line('Joined <code>'+d.channel+'</code> ('+d.count+' online)'); break;
+        case 'chat.message': {
+          const mine = d.id === me;
+          const who = d.id === 'server' ? 'server (HTTP)' : (mine ? 'you' : 'user '+d.id);
+          const el = document.createElement('div');
+          el.className = 'msg' + (mine ? ' me' : '');
+          el.innerHTML = '<div class="meta">'+who+' · '+new Date(d.at).toLocaleTimeString()+'</div>'+escapeHtml(d.text);
+          log.appendChild(el); log.scrollTop = log.scrollHeight; break;
+        }
+        case 'presence.left': line('<code>'+d.id+'</code> left'); break;
+        case 'error': line('⚠ ' + escapeHtml(d.message)); break;
+      }
+    };
+  }
+
+  function disconnect() { if (ws) { ws.onclose = null; ws.close(); ws = null; } status(false, 'disconnected'); }
+  function send() {
+    const text = $('text').value.trim(); if (!text || !ws) return;
+    ws.send(JSON.stringify({action:'chat.message', channel:$('channel').value.trim(), data:{text}}));
+    $('text').value = '';
+  }
+  async function httpPush() {
+    const r = await fetch('/api/broadcast', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel:$('channel').value.trim(), text:'Server push at '+new Date().toLocaleTimeString()})
+    });
+    line('HTTP → ' + escapeHtml(await r.text()));
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  $('connect').onclick = connect;
+  $('disconnect').onclick = disconnect;
+  $('send').onclick = send;
+  $('http').onclick = httpPush;
+  $('text').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+})();
+</script>
+</body>
+</html>

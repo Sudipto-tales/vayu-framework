@@ -20,6 +20,18 @@ class Config
         $this->path = rtrim($path, '/');
     }
 
+    /**
+     * Seed the repository with a pre-compiled config map (file name => array),
+     * as produced by `php vayu config:cache`. Keys present here are served from
+     * memory; any key not in the map still falls back to loading its file.
+     *
+     * @param array<string, array<string, mixed>> $items
+     */
+    public function preload(array $items): void
+    {
+        $this->loaded = $items + $this->loaded;
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
         [$file, $rest] = array_pad(explode('.', $key, 2), 2, null);

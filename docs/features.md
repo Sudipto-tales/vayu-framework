@@ -1,142 +1,79 @@
-# Vayu Framework Feature Reference
+# Vayu Feature Reference
 
-## What this framework provides
+## Core
 
-- Lightweight frontend routing using `app/view.php`.
-- API route definition using `api/gateway.php`.
-- Reusable controller abstractions through `core/BaseController.php`.
-- Remote API helper functions in `core/Helpers.php`.
-- Database support for SQLite, MySQL, and MongoDB.
-- Environment-driven configuration via `config/env.php`.
-- Simple view rendering through `load_view()`.
+- **Runtime PSR-4 autoloading** — boots without `composer install`
+  (`Vayu\` → `core/`, `App\` → `app/`).
+- **Application registry** — `bind`/`singleton`/`instance`/`make`; services:
+  `config`, `logger`, `router`, `request`, `db`, `session`, `auth`, `cache`,
+  `rate_limiter`, `broadcast`, `events`.
+- **Config** — dot-notation repository, lazy file loading, compiled cache.
+- **Logging** — daily/single channels under `storage/logs`.
+- **Exception handling** — HTML or JSON error responses by content negotiation.
 
-## Available helper functions
+## HTTP
 
-### `env(string $key, $default = null)`
+- Router with dynamic params, optional params, named routes, method
+  constraints, and groups (prefix + middleware).
+- Middleware **pipeline**: global + per-route, aliases and parameters
+  (`throttle:60,1`), class/instance/closure middleware.
+- `Request` (immutable, JSON bodies, method spoofing, `bearerToken()`,
+  `wantsJson()`, file uploads) and a fluent `Response`.
 
-Reads environment variables from:
+## Data (ORM)
 
-- `$_ENV`
-- `$_SERVER`
-- `getenv()`
+- `ConnectionManager` (sqlite/mysql) + `DB` facade.
+- `QueryBuilder`: where/orWhere/in/null/raw, joins, order/group/limit/offset,
+  insert/insertGetId/update/delete, aggregates, pluck/value/exists.
+- Active-Record `Model`: fillable/guarded, dirty tracking, timestamps,
+  `find`/`all`/`where`/`create` via `__callStatic`, `JsonSerializable`.
+- `Schema`/`Blueprint`/`Grammar` cross-driver DDL, `Migrator`, `Seeder`.
 
-### `view_data(array $data = [], array $extras = [])`
+## Web security & forms
 
-Merges primary view data with additional data.
+- Native/array `Session` with flash messages, old input and an error bag.
+- `StartSession` + `VerifyCsrfToken` middleware (CSRF skips GET/HEAD/OPTIONS and
+  `api/*`).
+- `Validator` with a broad rule set, `ValidationException`, `FormRequest`
+  (validated before controller injection), `UploadedFile`.
 
-### `render_view(string $path, array $data = [])`
+## APIs & throttling
 
-Loads a view file and passes data to it.
+- Token auth (`AuthManager`, sha256 tokens in `api_tokens`), Bearer or session,
+  `Authenticate` middleware.
+- `RateLimiter` (cache-backed fixed window) + `ThrottleRequests` with
+  `X-RateLimit-*` / `Retry-After` headers.
+- JSON helpers and a `/up` health endpoint.
 
-### `api_request(string $url, string $method = 'GET', array $options = [])`
+## Cross-cutting
 
-Fetches an API response using cURL or fallback file streams.
+- **Cache**: `Repository` over file/array/redis; `remember`, `increment`, etc.
+- **Events**: `Dispatcher` with named listeners (`config/events.php`), wildcard
+  observers, `Closure`/`Class@method`/`handle()` listeners, halt on `false`.
 
-### `api_get(string $url, array $query = [], array $headers = [])`
+## Real-time (optional, Workerman)
 
-Helper for GET API calls.
+- WebSocket server (`php vayu websocket`) with a JSON frame protocol,
+  channels/subscriptions, heartbeat and origin checks.
+- `Broadcaster` pushes from the HTTP process over a loopback bridge with **no
+  Workerman dependency in the web SAPI**.
+- Events implementing `BroadcastsEvents` auto-broadcast. See
+  [realtime.md](realtime.md).
 
-### `api_post(string $url, array $payload = [], array $headers = [])`
+## Tooling (CLI)
 
-Helper for POST API calls.
+`setup`, `run`, `websocket`, `about`, `doctor`, `route:list`, `key:generate`,
+`migrate*`, `db:seed`, `cache:clear`, `config:cache`/`config:clear`,
+`optimize`/`optimize:clear`, `make:model`/`make:migration`/`make:seeder`.
 
-## BaseController methods
+## Testing
 
-`core/BaseController.php` exposes the following protected methods:
+Zero-dependency runner (`php tests/run.php`): each `tests/*_test.php` returns a
+`callable(Assert): void`.
 
-- `viewData(array $data = [], array $extras = []): array`
-- `respond(string $view, array $data = [])`
-- `apiGet(string $url, array $query = [], array $headers = [])`
-- `apiPost(string $url, array $payload = [], array $headers = [])`
-- `defaultAppName(): string`
+## Helpers
 
-These methods are intended for frontend bridge controllers.
-
-## Adding a new frontend feature
-
-1. Create a controller file in `app/bridge/`.
-2. Extend `BaseController`.
-3. Add public methods for the new page.
-4. Use `$this->viewData()` to prepare view variables.
-5. Call `$this->respond('/app/page/yourpage.php', $data)`.
-6. Add the route to `app/view.php`.
-7. Create the page view in `app/page/`.
-
-### Example: new page route
-
-In `app/view.php`:
-```php
-return [
-    'default' => ['Welcome', 'index'],
-    'hello' => ['Welcome', 'hello'],
-    'about' => ['About', 'index'],
-];
-```
-
-In `app/bridge/About.php`:
-```php
-<?php
-class About extends BaseController
-{
-    public function index()
-    {
-        $data = $this->viewData(['title' => 'About Us']);
-        return $this->respond('/app/page/about.php', $data);
-    }
-}
-?>
-```
-
-In `app/page/about.php`:
-```php
-<h1><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?></h1>
-```
-
-## Adding a new API route
-
-1. Add an entry in `api/gateway.php`.
-2. Create an API controller or handler file.
-3. Use `api_get()` or `api_post()` for remote APIs.
-
-### Sample API route
-
-In `api/gateway.php`:
-```php
-return [
-    'api/status' => ['StatusApi', 'index'],
-];
-```
-
-In `api/StatusApi.php` (example location):
-```php
-<?php
-class StatusApi
-{
-    public function index()
-    {
-        header('Content-Type: application/json');
-        echo json_encode(['status' => 'ok']);
-    }
-}
-?>
-```
-
-## Data flow best practices
-
-- Keep presentation data inside the controller and pass only the final variables to the view.
-- Build the data array using `view_data()` to keep the view variable list clean.
-- For API-backed pages, fetch remote data in the bridge controller and render it safely in the view.
-
-## Recommended feature extensions
-
-- Add `app/page/components/` for reusable HTML blocks.
-- Add a request helper for input sanitization.
-- Add middleware-style routing in `core/RouteManager.php`.
-- Add a public `public/` webroot and move static assets there.
-
-## Current framework limitations
-
-- Router is route-key based and does not automatically parse dynamic path segments.
-- API routing is defined manually in `api/gateway.php`.
-- There is no authentication or session helper built into this codebase yet.
-- The default `app/page/welcome.php` is a documentation page rather than a functional application page.
+`app()`, `config()`, `request()`, `response()`, `json()`, `view()`, `redirect()`,
+`back()`, `route()`, `asset()`, `logger()`, `auth()`, `cache()`, `event()`,
+`broadcast()`, `session()`, `csrf_token()`/`csrf_field()`, `old()`,
+`errors()`/`error()`, `e()`, `abort()`, `env()`.

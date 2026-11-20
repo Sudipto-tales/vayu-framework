@@ -39,4 +39,28 @@ return function (Assert $assert): void {
     // forget
     $d4->forget(UserRegistered::class);
     $assert->that('forget removes listeners', !$d4->hasListeners(UserRegistered::class));
+
+    // Wildcard observers see every event, run after named listeners, and their
+    // return values neither halt propagation nor join the results.
+    $d5 = new Dispatcher();
+    $order = [];
+    $d5->listen('thing', function () use (&$order) { $order[] = 'named'; return 'R'; });
+    $d5->listen('*', function ($e = null) use (&$order) { $order[] = 'wild:' . (is_object($e) ? get_class($e) : var_export($e, true)); return false; });
+    $results = $d5->dispatch('thing', ['x']);
+    $assert->equals('wildcard runs after named', 'named,wild:\'x\'', implode(',', $order));
+    $assert->equals('wildcard false does not halt/pollute results', 'R', implode(',', $results));
+    $assert->that('hasListeners(*) true', $d5->hasListeners('*'));
+    $assert->that('wildcard makes any event "heard"', $d5->hasListeners('never.registered'));
+
+    // Wildcards are skipped when a named listener halts the event.
+    $d6 = new Dispatcher();
+    $seen = [];
+    $d6->listen('cancel', fn () => false);
+    $d6->listen('*', function () use (&$seen) { $seen[] = 'wild'; });
+    $d6->dispatch('cancel');
+    $assert->that('halted event skips wildcards', $seen === []);
+
+    // forget('*') clears wildcard observers.
+    $d6->forget('*');
+    $assert->that('forget(*) clears wildcards', !$d6->hasListeners('*'));
 };

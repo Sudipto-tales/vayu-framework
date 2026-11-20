@@ -36,7 +36,20 @@ class Application
         $this->instance(self::class, $this);
         $this->instance('app', $this);
 
-        $this->singleton('config', fn () => new Config($this->configPath()));
+        $this->singleton('config', function (): Config {
+            $config = new Config($this->configPath());
+
+            // Fast path: load the compiled config map if `config:cache` ran.
+            $cacheFile = $this->storagePath('cache/config.php');
+            if (is_file($cacheFile)) {
+                $cached = require $cacheFile;
+                if (is_array($cached)) {
+                    $config->preload($cached);
+                }
+            }
+
+            return $config;
+        });
         $this->singleton('logger', fn () => new Logger(
             $this->storagePath('logs'),
             (string) $this->config('app.log', 'daily')
@@ -51,12 +64,32 @@ class Application
         $this->singleton('rate_limiter', fn () => new \Vayu\RateLimiting\RateLimiter(
             $this->make('cache')->store()
         ));
+        $this->singleton('broadcast', function (): \Vayu\Realtime\Broadcaster {
+            $ws = (array) $this->config('websocket', []);
+
+            return new \Vayu\Realtime\Broadcaster(
+                (string) ($ws['broadcast_host'] ?? '127.0.0.1'),
+                (int) ($ws['broadcast_port'] ?? 2207),
+                (float) ($ws['broadcast_timeout'] ?? 0.5),
+            );
+        });
         $this->singleton('events', function (): \Vayu\Events\Dispatcher {
             $dispatcher = new \Vayu\Events\Dispatcher();
             foreach ((array) $this->config('events', []) as $event => $listeners) {
                 foreach ((array) $listeners as $listener) {
                     $dispatcher->listen($event, $listener);
                 }
+            }
+
+            // Auto-broadcast: any dispatched event implementing BroadcastsEvents
+            // is pushed to WebSocket clients via the broadcast bridge.
+            if ($this->config('websocket.auto_broadcast', true)) {
+                $dispatcher->listen('*', function (...$args): void {
+                    $event = $args[0] ?? null;
+                    if ($event instanceof \Vayu\Realtime\BroadcastsEvents) {
+                        $this->make('broadcast')->dispatch($event);
+                    }
+                });
             }
 
             return $dispatcher;
