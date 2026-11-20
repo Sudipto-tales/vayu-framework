@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Vayu command-line entry point.
+ *
+ *   php vayu <command> [options]
+ *
+ * This root-level entry point lets you run `php vayu ...` directly from the
+ * project root after cloning. The bin/vayu script mirrors it for Composer's
+ * configured `bin`.
+ */
+
+if (PHP_SAPI !== 'cli') {
+    exit('The vayu command must be run from the command line.' . PHP_EOL);
+}
+
+/** @var \Vayu\Application $app */
+$app = require __DIR__ . '/bootstrap/app.php';
+
+exit($app->runConsole($argv));

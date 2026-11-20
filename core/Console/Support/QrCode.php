@@ -140,9 +140,17 @@ final class QrCode
     }
 
     /**
-     * Render as a terminal image using half-block characters on a white
-     * field, so the dark-on-light contrast scanners expect is preserved
-     * even in a dark terminal.
+     * Render as a compact terminal image using half-block characters: each
+     * text line carries two module rows (upper half = foreground, lower
+     * half = background) so the whole code stays small — one char wide and
+     * half a char tall per module, roughly square on a typical 1:2 cell.
+     *
+     * A quiet zone of 2 light modules keeps the code reliably scannable on
+     * phones while staying as compact as possible in the terminal.
+     *
+     * Colours are emitted as 24-bit true colour (pure #000 / #fff) rather
+     * than the 8-colour "bright white", whose theme-dependent grey washes
+     * out the contrast and makes the code hard to scan.
      *
      * @param int $quiet number of light modules to pad on every side
      */
@@ -160,16 +168,20 @@ final class QrCode
             return $this->modules[$my][$mx];
         };
 
+        $black = '0;0;0';
+        $white = '255;255;255';
+
         $lines = [];
         for ($y = 0; $y < $total; $y += 2) {
             $line = '';
             for ($x = 0; $x < $total; $x++) {
                 $top = $dark($x, $y);
                 $bottom = ($y + 1 < $total) && $dark($x, $y + 1);
-                // Upper half-block: foreground paints the top, background the bottom.
-                $fg = $top ? '30' : '97';     // black : bright white
-                $bg = $bottom ? '40' : '107'; // black : bright white
-                $line .= "\033[{$fg};{$bg}m\xE2\x96\x80"; // ▀
+                // Upper half-block: foreground paints the top module,
+                // background paints the bottom module.
+                $fg = $top ? $black : $white;
+                $bg = $bottom ? $black : $white;
+                $line .= "\033[38;2;{$fg};48;2;{$bg}m\xE2\x96\x80"; // ▀
             }
             $line .= "\033[0m";
             $lines[] = $line;
