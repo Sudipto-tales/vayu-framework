@@ -1,0 +1,17 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Vayu command-line entry point.
+ *
+ *   php vayu <command> [options]
+ */
+
+if (PHP_SAPI !== 'cli') {
+    exit('The vayu command must be run from the command line.' . PHP_EOL);
+}
+
+/** @var \Vayu\Application $app */
+$app = require __DIR__ . '/../bootstrap/app.php';
+
+exit($app->runConsole($argv));

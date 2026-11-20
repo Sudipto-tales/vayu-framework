@@ -1,6 +1,30 @@
 {
+    "name": "vayu/framework",
+    "description": "Vayu — a lightweight, production-capable PHP micro-framework.",
+    "type": "project",
+    "license": "MIT",
     "require": {
+        "php": ">=8.1",
         "phpmailer/phpmailer": "^6.10",
         "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Vayu\\": "core/",
+            "App\\": "app/"
+        },
+        "files": [
+            "core/Support/helpers.php"
+        ]
+    },
+    "bin": [
+        "bin/vayu"
+    ],
+    "scripts": {
+        "run": "@php bin/vayu run",
+        "test": "@php tests/run.php"
+    },
+    "config": {
+        "sort-packages": true
     }
 }
