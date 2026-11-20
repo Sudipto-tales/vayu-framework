@@ -24,6 +24,12 @@ Thumbs.db
 *.log
 *.cache
 
+# Storage (keep the directories, ignore their contents)
+/storage/logs/*
+/storage/cache/*
+/storage/uploads/*
+!/storage/**/.gitkeep
+
 # Build and temporary files
 *.tmp
 *.temp
