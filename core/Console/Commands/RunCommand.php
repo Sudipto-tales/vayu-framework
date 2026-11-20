@@ -101,7 +101,7 @@ class RunCommand extends Command
 
         $this->dim('  Scan to open on your phone (same Wi-Fi):');
         $this->line('');
-        foreach (explode(PHP_EOL, $qr->toTerminal(2)) as $row) {
+        foreach (explode(PHP_EOL, $qr->toTerminal()) as $row) {
             $this->line('  ' . $row);
         }
         $this->line('');
