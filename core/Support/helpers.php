@@ -116,6 +116,29 @@ if (!function_exists('event')) {
     }
 }
 
+if (!function_exists('broadcast')) {
+    /**
+     * Push a real-time event to WebSocket clients, or get the Broadcaster.
+     *
+     *   broadcast('room.1', 'chat.message', ['text' => 'hi']);
+     *   broadcast()->to($connectionId, 'notice', [...]);
+     *   broadcast()->dispatch($eventObject);
+     *
+     * @param array<string, mixed> $data
+     */
+    function broadcast(?string $channel = null, ?string $event = null, array $data = []): \Vayu\Realtime\Broadcaster
+    {
+        /** @var \Vayu\Realtime\Broadcaster $broadcaster */
+        $broadcaster = app('broadcast');
+
+        if ($channel !== null) {
+            $broadcaster->event($channel, (string) $event, $data);
+        }
+
+        return $broadcaster;
+    }
+}
+
 if (!function_exists('view')) {
     function view(string $name, array $data = []): Response
     {

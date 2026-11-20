@@ -27,6 +27,25 @@ $router->get('/api/user', [AuthController::class, 'me'])
     ->middleware(['auth', 'throttle:60,1'])
     ->name('api.user');
 
+// Real-time demo: push a chat message from the HTTP process to WS clients.
+// (Under api/* so it is CSRF-exempt; the WS server must be running.)
+$router->post('/api/broadcast', function (Request $request) {
+    $channel = (string) $request->input('channel', 'room.lobby');
+    $text = (string) $request->input('text', 'Hello from the HTTP process');
+
+    $delivered = broadcast()->event($channel, 'chat.message', [
+        'id' => 'server',
+        'text' => $text,
+        'at' => date('c'),
+    ]);
+
+    return (new Response())->json([
+        'queued' => $delivered,
+        'channel' => $channel,
+        'note' => $delivered ? 'Pushed to the WebSocket server.' : 'WebSocket server unreachable — is `php vayu websocket` running?',
+    ]);
+})->name('api.broadcast');
+
 $router->group(['prefix' => 'api', 'middleware' => [ExampleMiddleware::class]], function ($router): void {
     $router->get('/ping', fn () => (new Response())->json(['pong' => true]));
 

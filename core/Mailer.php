@@ -4,23 +4,43 @@ use PHPMailer\PHPMailer\Exception;
 
 require_once __BASEDIR__ . '/vendor/autoload.php';
 
+/**
+ * Legacy mailer, kept for the strangler-fig migration.
+ *
+ * SECURITY: all SMTP credentials are read from the environment (.env / MAIL_*).
+ * Never hardcode a username, password or app password in this file — it is
+ * tracked in git. See .env.example for the available keys.
+ */
 class Mailer
 {
+    private static function config(string $key, $default = null)
+    {
+        if (function_exists('env')) {
+            return env($key, $default);
+        }
+
+        $value = $_ENV[$key] ?? getenv($key);
+
+        return ($value === false || $value === null || $value === '') ? $default : $value;
+    }
+
     protected static function getMailer()
     {
         $mail = new PHPMailer(true);
 
-        // SMTP Config
+        // SMTP config — sourced from the environment, never hardcoded.
         $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
+        $mail->Host       = (string) self::config('MAIL_HOST', 'smtp.gmail.com');
         $mail->SMTPAuth   = true;
-        $mail->Username   = 'bcasudipta@gmail.com';        // your Gmail
-        $mail->Password   = 'cgcw bvfe jgqv jbsm';          // 16 digit App password
+        $mail->Username   = (string) self::config('MAIL_USERNAME', '');
+        $mail->Password   = (string) self::config('MAIL_PASSWORD', '');
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
+        $mail->Port       = (int) self::config('MAIL_PORT', 587);
 
-        // Default From
-        $mail->setFrom('bcasudipta@gmail.com', 'Sudipta');
+        $mail->setFrom(
+            (string) self::config('MAIL_FROM_ADDRESS', self::config('MAIL_USERNAME', '')),
+            (string) self::config('MAIL_FROM_NAME', 'Vayu')
+        );
 
         return $mail;
     }
@@ -45,9 +65,11 @@ class Mailer
     }
 
     public static function VerifyMail($mail){
+        $appUrl = rtrim((string) self::config('APP_URL', 'https://yourdomain.com'), '/');
+        $address = $mail->getToAddresses()[0][0];
         $mail->Subject = "Email Verification";
-        $mail->Body    = "Please click the link below to verify your email address:\n\n" . 
-                         "https://yourdomain.com/verify?email=" . urlencode($mail->getToAddresses()[0][0]);
-        return self::send($mail->getToAddresses()[0][0], $mail->Subject, $mail->Body);
+        $mail->Body    = "Please click the link below to verify your email address:\n\n" .
+                         $appUrl . "/verify?email=" . urlencode($address);
+        return self::send($address, $mail->Subject, $mail->Body);
     }
 }

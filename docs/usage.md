@@ -1,137 +1,145 @@
-# Vayu Framework Usage
+# Vayu Usage
 
-## Quick start
+## Setup
 
-1. Copy `.env.example` to `.env`.
-2. Set your environment values in `.env`.
-3. Run `composer install` to install dependencies.
-4. Start the application using a local server, for example:
-   ```bash
-   php -S localhost:8000
-   ```
-5. Open the app in your browser at `http://localhost:8000`.
+```bash
+cp .env.example .env
+php vayu setup            # app key, storage dirs, migrations (--seed for demo data, --fresh to reset)
+php vayu run              # dev server on http://127.0.0.1:8000
+```
 
-## Key entry points
-
-- `index.php`
-  - Main application entry point.
-  - Loads `config/route.php`.
-- `config/route.php`
-  - Loads bootstrap files and dispatches routes.
-- `config/bootstarp.php`
-  - Loads environment, configuration, framework settings, database, and core helpers.
-  - Defines `load_view()` and `base_url()`.
-
-## Environment configuration
-
-Use `.env` to configure:
-
-- `APP_NAME`
-- `APP_ENV`
-- `APP_DEBUG`
-- `APP_URL`
-- `DB_TYPE` (`sqlite`, `mysql`, or `mongo`)
-- `DB_DATABASE`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_USERNAME`
-- `DB_PASSWORD`
-
-The `env()` helper is defined in `config/env.php` and reads from `$_ENV`, `$_SERVER`, or `getenv()`.
+`composer install` is optional — it's only needed for PHPMailer, phpdotenv and
+Workerman. The framework itself runs on a bare checkout.
 
 ## Routing
 
-Frontend and API routes are defined separately:
+Define routes in `routes/web.php` and `routes/api.php` (both receive `$router`):
 
-- Frontend routes: `app/view.php`
-- API routes: `api/gateway.php`
-
-The route definitions are loaded in `config/config.php` and dispatched by `core/RouteManager.php`.
-
-## Frontend flow
-
-1. `app/view.php` returns a route map.
-2. `RouteManager::dispatch()` resolves the current route.
-3. The controller class is instantiated and the requested method is called.
-4. Controllers use `render_view()` and `load_view()` to render view pages.
-
-## Views
-
-- Frontend views live in `app/page/`.
-- Each view receives variables extracted from the controller.
-- Use `<?= htmlspecialchars($variable, ENT_QUOTES, 'UTF-8') ?>` to escape output.
-
-Example in `app/page/hello.php`:
 ```php
-<h1>Hello, <?= htmlspecialchars($name, ENT_QUOTES, 'UTF-8') ?>!</h1>
+$router->get('/', [WelcomeController::class, 'index'])->name('home');
+$router->get('/hello/{name?}', [WelcomeController::class, 'hello']);
+$router->post('/contact', [ContactController::class, 'submit']);
+
+$router->group(['prefix' => 'api', 'middleware' => ['auth', 'throttle:60,1']], function ($router) {
+    $router->get('/user', [AuthController::class, 'me']);
+});
 ```
 
-## Controllers and bridge files
+- Params: `{id}` required, `{id?}` optional. They inject into the handler by name.
+- Type-hint `Vayu\Http\Request` (or a `FormRequest`) and it is injected.
+- `php vayu route:list` prints the table.
 
-- Frontend controller code lives in `app/bridge/`.
-- A controller extends `core/BaseController` to access reusable methods.
-- Example: `app/bridge/Welcome.php`.
+## Controllers
 
-### Example controller
 ```php
-class Welcome extends BaseController
+namespace App\Controllers;
+
+use Vayu\Http\Request;
+use Vayu\Http\Response;
+
+class WelcomeController
 {
-    public function hello($app_name = null)
+    public function hello(Request $request, ?string $name = null): Response
     {
-        $app_name = $app_name ?: $this->defaultAppName();
-
-        $data = $this->viewData(
-            ['name' => $app_name],
-            ['api' => $this->apiGet('https://jsonplaceholder.typicode.com/todos/1')]
-        );
-
-        return $this->respond('/app/page/hello.php', $data);
+        return view('welcome', ['name' => $name ?? 'world']);
     }
 }
 ```
 
-## API helpers
+Return a `Response`, a string (HTML), or an array/object (JSON).
 
-Core helper functions are in `core/Helpers.php`:
+## Views
 
-- `view_data(array $data, array $extras)`
-- `render_view(string $path, array $data)`
-- `api_request(string $url, string $method, array $options)`
-- `api_get(string $url, array $query, array $headers)`
-- `api_post(string $url, array $payload, array $headers)`
+PHP views live in `resources/views/`. Render with `view('name', $data)` and
+escape output with `e()`:
 
-Use `api_get()` and `api_post()` from controllers to fetch external JSON APIs.
+```php
+<h1>Hello, <?= e($name) ?></h1>
+<?= csrf_field() ?>
+```
 
-## Database support
+## Forms, validation & CSRF
 
-`config/db.php` supports:
+A `FormRequest` validates before the controller runs; failures redirect back
+with flashed errors and old input (or return 422 JSON for API clients):
 
-- SQLite
-- MySQL
-- MongoDB
+```php
+class ContactRequest extends FormRequest
+{
+    public function rules(): array
+    {
+        return ['email' => 'required|email', 'message' => 'required|min:10'];
+    }
+}
+```
 
-Reusable SQL helpers:
+In views: `old('email')`, `error('email')`, `errors()`.
 
-- `db_query($sql, $params)`
-- `db_fetch_all($sql, $params)`
-- `db_fetch_one($sql, $params)`
-- `db_execute($sql, $params)`
-- `db_last_insert_id()`
+## Database
 
-Mongo helpers:
+```php
+use App\Models\User;
 
-- `mongo_find($collection, $filter)`
-- `mongo_insert($collection, $document)`
-- `mongo_update($collection, $filter, $update)`
-- `mongo_delete($collection, $filter)`
+$user  = User::create(['name' => 'Ada', 'email' => 'ada@x.io']);
+$found = User::find(1);
+$admins = User::where('role', 'admin')->orderBy('name')->get();
 
-## Composer
+// Query builder / facade
+DB::table('users')->where('active', 1)->count();
+```
 
-The project requires:
+Migrations and seeders:
 
-- `phpmailer/phpmailer`
-- `vlucas/phpdotenv`
+```bash
+php vayu make:migration create_posts_table
+php vayu migrate            # rollback | status | fresh
+php vayu make:seeder PostSeeder
+php vayu db:seed
+```
 
-Use `composer install` to create `vendor/` and install dependencies.
+## APIs, auth & throttling
 
-> `composer.lock` is only useful after `composer.json` is present. In production, always run `composer install` to install packages from `composer.json` and lock versions from `composer.lock`.
+```php
+// Issue a token
+$token = auth()->attempt($email, $password);     // -> store/return it
+
+// Protect routes
+$router->get('/api/user', [AuthController::class, 'me'])
+    ->middleware(['auth', 'throttle:60,1']);       // 60 requests / minute
+```
+
+Clients send `Authorization: Bearer <token>`. Rate-limited responses carry
+`X-RateLimit-*` / `Retry-After`. JSON helpers: `json($data, $status)`.
+
+## Cache & events
+
+```php
+$value = cache()->remember('key', 300, fn () => expensive());
+event(new UserRegistered($user));                  // listeners in config/events.php
+```
+
+## Real-time
+
+```bash
+composer require workerman/workerman
+php vayu websocket
+```
+
+Broadcast from anywhere: `broadcast('room.1', 'chat.message', ['text' => 'hi'])`.
+See [realtime.md](realtime.md).
+
+## Environment keys
+
+See `.env.example`. Common: `APP_NAME`, `APP_ENV`, `APP_DEBUG`, `APP_URL`,
+`APP_KEY`, `DB_*`, `CACHE_DRIVER`, `MAIL_*`, `WS_*`. Never commit real secrets —
+`.env` is git-ignored.
+
+## Production
+
+```bash
+composer install --no-dev
+php vayu optimize          # compile config cache
+```
+
+Serve with the document root at `public/`. Re-run `optimize` (or `config:clear`)
+after editing `.env`, since cached config freezes env values.

@@ -16,24 +16,42 @@ class Dispatcher
     /** @var array<string, list<callable|string>> */
     protected array $listeners = [];
 
+    /** @var list<callable|string> listeners that observe every event ("*") */
+    protected array $wildcards = [];
+
     /**
-     * @param string|list<string>  $events
+     * @param string|list<string>  $events  event name(s), or "*" for all events
      * @param callable|string      $listener
      */
     public function listen(string|array $events, callable|string $listener): void
     {
         foreach ((array) $events as $event) {
+            if ($event === '*') {
+                $this->wildcards[] = $listener;
+                continue;
+            }
+
             $this->listeners[$event][] = $listener;
         }
     }
 
     public function hasListeners(string $event): bool
     {
-        return !empty($this->listeners[$event]);
+        if ($event === '*') {
+            return !empty($this->wildcards);
+        }
+
+        return !empty($this->listeners[$event]) || !empty($this->wildcards);
     }
 
     public function forget(string $event): void
     {
+        if ($event === '*') {
+            $this->wildcards = [];
+
+            return;
+        }
+
         unset($this->listeners[$event]);
     }
 
@@ -49,15 +67,26 @@ class Dispatcher
         $arguments = is_object($event) ? [$event] : $payload;
 
         $results = [];
+        $halted = false;
         foreach ($this->listeners[$name] ?? [] as $listener) {
             $result = $this->callListener($listener, $arguments);
 
             // A listener returning false halts propagation.
             if ($result === false) {
+                $halted = true;
                 break;
             }
 
             $results[] = $result;
+        }
+
+        // Wildcard observers (e.g. the auto-broadcaster) run after the named
+        // listeners, but not for a halted/cancelled event. Their return values
+        // never affect the dispatch result or halt propagation.
+        if (!$halted) {
+            foreach ($this->wildcards as $listener) {
+                $this->callListener($listener, $arguments);
+            }
         }
 
         return $results;

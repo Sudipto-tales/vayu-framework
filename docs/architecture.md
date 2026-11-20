@@ -1,99 +1,81 @@
-# Vayu Framework Architecture
+# Vayu Architecture
 
-## Folder structure
+Vayu is a small service registry plus an HTTP/console lifecycle. There is no
+full DI container by design — just enough wiring to avoid the old
+`global $pdo` / loose-function style.
 
-- `index.php` — application entry point.
-- `config/` — framework configuration, bootstrapping, database, and environment helpers.
-- `core/` — reusable framework helpers, base controller, route manager, and route provider.
-- `app/` — frontend route definitions, bridge controllers, and page views.
-- `api/` — API route definitions and backend endpoint registration.
-- `assets/` — CSS, JavaScript, images, and static assets.
-- `vendor/` — Composer dependencies.
+## Boot sequence
 
-## Routing architecture
+1. **`public/index.php`** (the only webroot entry) requires `bootstrap/app.php`.
+2. **`bootstrap/autoload.php`** registers a runtime PSR-4 autoloader
+   (`Vayu\` → `core/`, `App\` → `app/`), loads Composer's autoloader if present,
+   and loads `core/Support/helpers.php`. The app boots on a bare checkout.
+3. **`bootstrap/app.php`** loads `.env`, creates the `Application`, registers
+   exception handling, global middleware (session + CSRF) and middleware
+   aliases, then requires `routes/web.php` and `routes/api.php`.
+4. `Application::run()` captures the `Request`, dispatches it through the
+   `Router`, and sends the `Response`.
 
-### Route definitions
+The console entry (`bin/vayu`) requires the same `bootstrap/app.php` and calls
+`Application::runConsole()`.
 
-- `app/view.php` defines frontend routes in the shape:
-  ```php
-  'route-key' => ['ControllerClass', 'method']
-  ```
-- `api/gateway.php` defines API routes using the same shape.
+## The Application (`core/Application.php`)
 
-### Route loading
+A service registry with `bind` / `singleton` / `instance` / `make`. Registered
+services include: `config`, `logger`, `router`, `request`, `db`, `session`,
+`auth`, `cache`, `rate_limiter`, `broadcast` and `events`. Config is loaded
+lazily and can be served from a compiled cache (see "Optimization").
 
-- `config/config.php` loads both route sets:
-  - frontend routes from `app/view.php`
-  - API routes from `api/gateway.php`
-- The merged route array is available to the dispatcher.
+## HTTP layer (`core/Http`, `core/Routing`, `core/Middleware`)
 
-### Dispatching
+- **`Request`** — an immutable snapshot (method, path, query, body, headers,
+  cookies, files). Decodes JSON bodies and supports method spoofing.
+- **`Response`** — content/status/headers value object with `json()`, `html()`,
+  `redirect()`, `created()`, `noContent()`, etc.
+- **`Router`** — dynamic params (`{id}`, `{name?}`), named routes, method
+  constraints, groups (prefix + middleware), and a middleware **pipeline**.
+  Handlers may be `[Controller::class, 'method']`, `"Controller@method"`, or a
+  closure. The `Request` (or a `FormRequest` subclass) is injected by type-hint;
+  route params inject by name.
+- **`Middleware\Pipeline`** — runs global + route middleware around the handler.
+  Supports class names, instances, closures, aliases and parameters
+  (`throttle:60,1`). Built-ins: `StartSession`, `VerifyCsrfToken`,
+  `ThrottleRequests`, `Authenticate`.
 
-- `config/route.php` loads bootstrap files and the route manager.
-- `core/RouteManager.php` resolves the current path and dispatches the matching controller.
-- If a route is missing, it returns the `resources/views/404.php` page.
+## Data layer (`core/Database`)
 
-## Controller layer
+`ConnectionManager` (service `db`, sqlite/mysql) → `DB` facade → `QueryBuilder`
+→ Active-Record `Model` (fillable/guarded, dirty tracking, timestamps,
+`__callStatic` finders) → `Schema`/`Blueprint`/`Grammar` (cross-driver DDL) →
+`Migrator` + `Seeder`. Each ships a CLI command.
 
-- Controllers live in `app/bridge/`.
-- All frontend controllers should extend `core/BaseController`.
-- `BaseController` provides:
-  - `viewData()` — merges view variables with extra data.
-  - `respond()` — renders a view.
-  - `apiGet()` / `apiPost()` — remote API helpers.
-  - `defaultAppName()` — returns `APP_NAME` or controller default.
+## Supporting services
 
-## View layer
+- **Session/CSRF** (`core/Session`, middleware) — flash messages, old input, an
+  error bag and a CSRF token; CSRF is verified for non-idempotent, non-API
+  requests.
+- **Validation** (`core/Validation`) — `Validator`, `ValidationException`,
+  `FormRequest` (validated before injection).
+- **Auth & throttling** (`core/Auth`, `core/RateLimiting`) — token minting +
+  verification (`api_tokens`), session login, Bearer/session `Authenticate`,
+  file/cache-backed fixed-window `RateLimiter`.
+- **Cache** (`core/Cache`) — `Repository` over file/array/redis stores.
+- **Events** (`core/Events`) — `Dispatcher` with named and wildcard listeners;
+  listeners from `config/events.php`.
+- **Real-time** (`core/Realtime`) — a Workerman WebSocket server plus a
+  loopback broadcast bridge. See [realtime.md](realtime.md).
 
-- Views live in `app/page/`.
-- The `load_view()` helper in `config/bootstarp.php` loads a view file and extracts passed data into variables.
-- Example: `['name' => 'vayu']` becomes `$name` inside the view.
+## Optimization
 
-## Helper layer
+`php vayu optimize` compiles every side-effect-free, array-returning config file
+into `storage/cache/config.php`. On boot, `Application` preloads that map into
+the `Config` repository, skipping per-file `require`s. Legacy side-effecting
+config files are detected via the PHP tokenizer and never cached. Route caching
+is intentionally omitted because routes use closures.
 
-### Core helpers
+## Legacy bridge (strangler-fig)
 
-- `core/Helpers.php` contains reusable functions for:
-  - data merging
-  - view rendering
-  - API requests
-
-### Environment helper
-
-- `config/env.php` defines `env()`.
-- It reads environment variables from `$_ENV`, `$_SERVER`, or `getenv()`.
-
-### Database helper
-
-- `config/db.php` selects the database driver and creates a PDO or MongoDB connection.
-- It also defines reusable SQL and Mongo helpers.
-
-## Feature function patterns
-
-### Add a new frontend page
-
-1. Add a route in `app/view.php`.
-2. Create a bridge controller in `app/bridge/`.
-3. Create a page view in `app/page/`.
-4. Pass required data from the controller to the view.
-
-### Add a new API route
-
-1. Add a route in `api/gateway.php`.
-2. Create an API controller or handler file.
-3. Use helper functions or custom logic inside the API handler.
-
-## Current sample features
-
-- `Welcome::index()` renders `app/page/welcome.php`.
-- `Welcome::hello()` renders `app/page/hello.php` and demonstrates remote API data fetching.
-- `app/page/hello.php` shows how controller data is passed into the view.
-- `app/page/welcome.php` contains documentation-style HTML for release notes and architecture.
-
-## Best practices
-
-- Keep frontend controllers lean.
-- Keep business logic in reusable helpers or service classes.
-- Keep views focused on presentation.
-- Use `htmlspecialchars()` when rendering user-facing values.
-- Keep route definitions in `app/view.php` and `api/gateway.php`.
+The old "Coder Framework" files remain on disk. The new `Vayu\`/`App\` stack
+runs alongside them; the old array-route map is bridged only when
+`VAYU_LEGACY_ROUTES=true` (`Application::registerLegacyRoutes()`), and new routes
+always win.
